@@ -113,3 +113,10 @@
 - **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
 - **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
 - **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+
+### Mobile/1GB Runtime Metrics *(if applicable)*
+
+- **SC-005**: Runtime RSS ≤ 400 MB and peak memory ≤ 512 MB on 1GB devices
+- **SC-006**: Next-token p95 latency ≤ 250 ms; tokens/sec target documented and met
+- **SC-007**: Battery impact ≤ 5% drain per 30 minutes of continuous inference
+- **SC-008**: All core inference functions operate offline with no network dependency

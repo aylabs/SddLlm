@@ -1,0 +1,7 @@
+torch
+sentencepiece
+numpy
+pytest
+ruff
+black
+psutil

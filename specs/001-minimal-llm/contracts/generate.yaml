@@ -1,0 +1,54 @@
+openapi: 3.0.0
+info:
+  title: Minimal On-Device LLM API
+  version: 0.1.0
+paths:
+  /generate:
+    post:
+      summary: Generate text completion offline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                max_tokens:
+                  type: integer
+                  default: 128
+                temperature:
+                  type: number
+                  default: 0.7
+                top_p:
+                  type: number
+                  default: 0.9
+              required: [prompt]
+      responses:
+        '200':
+          description: Successful generation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  metrics:
+                    type: object
+                    properties:
+                      latency_p95_ms:
+                        type: integer
+                      tokens_per_sec:
+                        type: number
+                      rss_mb:
+                        type: integer
+                      peak_mb:
+                        type: integer
+        '400':
+          description: Invalid request
+        '429':
+          description: Rate-limited due to resource constraints
+        '451':
+          description: Refused due to safety policy

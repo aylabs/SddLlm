@@ -1,13 +1,13 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Minimal On-Device LLM
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+**Branch**: `001-minimal-llm` | **Date**: 2026-02-02 | **Spec**: ../spec.md
+**Input**: Feature specification from `/specs/001-minimal-llm/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-[Extract from feature spec: primary requirement + technical approach from research]
+Build the simplest on-device LLM that runs fully offline on 1GB devices using PyTorch. MVP delivers text completion with a 1k-token context window, bilingual (EN+ES) tokenizer, and local safety filtering. Implementation focuses on a tiny Transformer architecture with int8 quantized inference, strict memory budgets (runtime RSS ≤ 400MB; peak ≤ 512MB), and next-token p95 ≤ 250ms.
 
 ## Technical Context
 
@@ -17,15 +17,15 @@
   the iteration process.
 -->
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-**Project Type**: [single/web/mobile - determines source structure]  
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Language/Version**: Python 3.11; PyTorch 2.x (CPU-only target)  
+**Primary Dependencies**: PyTorch, sentencepiece (tokenizer), onnx export (optional), numpy  
+**Storage**: N/A (model bundle files, memory-mapped weights preferred)  
+**Testing**: pytest; perf/energy/memory profiling scripts; safety test suite  
+**Target Platform**: 1GB RAM devices, offline; CPU-only baseline; optional NPU/GPU when available  
+**Project Type**: single (library + CLI)  
+**Performance Goals**: next-token p95 ≤ 250ms; tokens/sec target documented (device-class matrix)  
+**Constraints**: runtime RSS ≤ 400MB; peak memory ≤ 512MB; offline-first; safety local  
+**Scale/Scope**: MVP: tiny Transformer (≈2 layers, d_model≈128, heads≈4), vocab≈8k; EN+ES only
 
 ## Constitution Check
 
@@ -64,17 +64,28 @@ specs/[###-feature]/
 -->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
 src/
 ├── models/
+│   ├── tiny_transformer.py
+│   ├── tokenizer.py
+│   └── quantization.py
 ├── services/
+│   ├── generate.py
+│   └── safety.py
 ├── cli/
+│   └── minimal_llm.py
 └── lib/
+  └── runtime.py
 
 tests/
 ├── contract/
+│   └── test_generate_api.py
 ├── integration/
+│   └── test_offline_generation.py
 └── unit/
+  ├── test_tokenizer.py
+  ├── test_model_shapes.py
+  └── test_safety.py
 
 # [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
 backend/
@@ -99,8 +110,7 @@ ios/ or android/
 └── [platform-specific structure: feature modules, UI flows, platform tests]
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: Single project with `src/` and `tests/` at repo root. Library exposes a CLI for offline generation. Contracts define local API semantics only (for possible future embedding).
 
 ## Complexity Tracking
 

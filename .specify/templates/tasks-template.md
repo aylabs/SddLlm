@@ -157,6 +157,14 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
 
+**Mobile/1GB LLM Constitution Gates (add as needed)**
+
+- [ ] TXXX Perf profiling: next-token p95 ≤ 250 ms; tokens/sec target documented and met
+- [ ] TXXX Energy profiling: ≤ 5% battery drain per 30 minutes continuous inference
+- [ ] TXXX Memory profiling: runtime RSS ≤ 400 MB; peak ≤ 512 MB on 1GB device class
+- [ ] TXXX On-device safety tests: validate policy enforcement for unsafe prompts
+- [ ] TXXX Compatibility audit: confirm semantic versioning and migration notes
+
 ---
 
 ## Dependencies & Execution Order
