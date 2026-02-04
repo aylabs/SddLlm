@@ -1,6 +1,8 @@
 import torch
 import time
 import logging
+import sentencepiece as spm
+from pathlib import Path
 from src.models.tiny_transformer import TinyTransformer
 from src.models.tokenizer import Tokenizer
 from src.lib.runtime import GenerationMetrics, current_rss_mb
@@ -9,18 +11,60 @@ from src.services.safety import check_safety, get_safety_rationale
 # Configure logging for auditable safety outcomes
 logging.basicConfig(level=logging.INFO)
 
+# Global model cache to avoid reloading
+_model_cache = None
+_tokenizer_cache = None
+
+
+def load_trained_model(model_path: str = "data/best_model.pt", vocab_size: int = 8000):
+    """Load trained model from checkpoint."""
+    global _model_cache
+    if _model_cache is not None:
+        return _model_cache
+    
+    model = TinyTransformer(vocab_size=vocab_size)
+    
+    if Path(model_path).exists():
+        checkpoint = torch.load(model_path, map_location='cpu')
+        model.load_state_dict(checkpoint['model_state_dict'])
+        logging.info(f"Loaded trained model from {model_path} (epoch {checkpoint.get('epoch', '?')})")
+    else:
+        logging.warning(f"Model checkpoint not found at {model_path}, using random weights")
+    
+    model.eval()
+    _model_cache = model
+    return model
+
+
+def load_trained_tokenizer(tokenizer_path: str = "data/bilingual_8k.model"):
+    """Load trained SentencePiece tokenizer."""
+    global _tokenizer_cache
+    if _tokenizer_cache is not None:
+        return _tokenizer_cache
+    
+    if Path(tokenizer_path).exists():
+        tokenizer = spm.SentencePieceProcessor(model_file=tokenizer_path)
+        logging.info(f"Loaded trained tokenizer from {tokenizer_path}")
+        _tokenizer_cache = tokenizer
+        return tokenizer
+    else:
+        logging.warning(f"Tokenizer not found at {tokenizer_path}, using fallback")
+        return Tokenizer(vocab_size=8000)
+
 
 def generate_text_core(
     prompt: str, max_tokens: int = 64, vocab_size: int = 8000, temperature: float = 0.7
 ) -> tuple[str, GenerationMetrics]:
     """Core generation loop with metrics tracking."""
-    tok = Tokenizer(vocab_size=vocab_size)
-    model = TinyTransformer(vocab_size=vocab_size)
-    model.eval()
-
-    input_ids = tok.encode(prompt, add_bos=True, add_eos=False)
-    input_ids = tok.truncate(input_ids, max_length=1000)
+    tokenizer = load_trained_tokenizer()
+    model = load_trained_model()
+    
+    # Encode prompt
+    input_ids = tokenizer.encode(prompt, out_type=int)
+    if len(input_ids) > 1000:
+        input_ids = input_ids[-1000:]
     input_tensor = torch.tensor([input_ids], dtype=torch.long)
+
 
     rss_start = current_rss_mb()
     start_time = time.time()
@@ -37,7 +81,8 @@ def generate_text_core(
             token_times.append((time.time() - token_start) * 1000)
             
             generated_ids.append(next_id)
-            if next_id == tok.eos_id:
+            # Check for EOS token (SentencePiece uses ID 1 for EOS)
+            if next_id == 1:
                 break
             input_tensor = torch.tensor([generated_ids], dtype=torch.long)
 
@@ -48,7 +93,7 @@ def generate_text_core(
     rss_end = current_rss_mb()
     peak_mb = max(rss_start, rss_end)
 
-    output_text = tok.decode(generated_ids)
+    output_text = tokenizer.decode(generated_ids)
     metrics = GenerationMetrics(
         latency_p95_ms=p95_latency,
         tokens_per_sec=tokens_per_sec,

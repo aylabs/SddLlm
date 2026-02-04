@@ -12,6 +12,33 @@ A PyTorch-based minimal language model designed to run on 1GB RAM devices with s
 
 ## Quick Start
 
+### Training Pipeline
+
+Train a model from scratch with the automated pipeline:
+
+```bash
+# Full training (corpus → tokenizer → model → validation)
+./scripts/train_pipeline.sh
+
+# Quick test (2 minutes)
+./scripts/train_pipeline.sh --epochs 2 --batch-size 8 --vocab-size 1000
+
+# Resume interrupted training
+./scripts/train_pipeline.sh --resume
+
+# Custom configuration
+./scripts/train_pipeline.sh \
+    --epochs 20 \
+    --batch-size 32 \
+    --learning-rate 0.0003 \
+    --vocab-size 8000 \
+    --output-dir ./data
+```
+
+See [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) for comprehensive training documentation.
+
+### Inference
+
 ```bash
 # Install dependencies
 python -m venv .venv
