@@ -1,0 +1,359 @@
+name: TRAINING_GUIDE.md
+description: Comprehensive explanation of LLM training process from corpus to deployment
+type: documentation
+language: markdown
+target_audience: Developers with basic ML knowledge (understands neural networks, gradients)
+
+structure:
+  total_length: "1500-2500 lines"
+  sections: 10
+  diagrams: "Minimum 10 ASCII/Unicode illustrations"
+  code_examples: "Minimum 10 runnable snippets"
+  tables: "Minimum 3 reference tables"
+
+sections:
+  1_overview:
+    title: "Training Overview: What and Why"
+    length_estimate: "100-150 lines"
+    content_requirements:
+      - High-level explanation of what training accomplishes (learning patterns from text)
+      - Difference between training (development-time) and inference (runtime)
+      - Overview of TinyTransformer architecture (2 layers, 128 d_model, 2.45M params)
+      - Training workflow diagram (corpus → tokenizer → model → checkpoints)
+      - Expected outcomes (model generates text, not random noise)
+    diagrams:
+      - name: "Training Workflow"
+        type: "ASCII flowchart"
+        shows: "Corpus Download → Tokenizer Training → Model Training → Validation → Deployment"
+    prerequisites:
+      - Basic understanding of neural networks
+      - Familiarity with Python
+      - Command line comfort
+  
+  2_tokenization:
+    title: "Phase 1: Tokenization - Text to Numbers"
+    length_estimate: "200-300 lines"
+    content_requirements:
+      - What tokenization is (breaking text into units)
+      - Why vocabulary building matters (compression, generalization)
+      - Unigram vs BPE vs character-level algorithms
+      - Special tokens (BOS=0, EOS=1, PAD=2, UNK=3)
+      - SentencePiece training process (EM algorithm summary)
+      - Character coverage (99.96% for bilingual corpus)
+    diagrams:
+      - name: "Text to Tokens Transformation"
+        type: "ASCII example"
+        shows: "'Hello world!' → [2304, 234, 1543, 45] (example IDs)"
+      - name: "Vocabulary Construction"
+        type: "ASCII illustration"
+        shows: "Corpus → Frequency Counting → Merge Rules → Final Vocabulary (8000 tokens)"
+    code_examples:
+      - name: "Encoding Text"
+        runnable: true
+        language: python
+        demonstrates: "tokenizer.encode('Hello world!', out_type=int)"
+      - name: "Decoding Tokens"
+        runnable: true
+        language: python
+        demonstrates: "tokenizer.decode([2304, 234, 1543, 45])"
+    tables:
+      - name: "Token Type Comparison"
+        columns: [Algorithm, Vocab Size, Training Speed, Generation Quality]
+        rows: [Character-level, Unigram, BPE, WordPiece]
+  
+  3_model_initialization:
+    title: "Phase 2: Model Initialization - Random Start"
+    length_estimate: "150-200 lines"
+    content_requirements:
+      - TinyTransformer architecture breakdown (layers, attention heads, FFN)
+      - Embedding layer (vocab_size × d_model matrix)
+      - Random weight initialization (why start random, not zeros)
+      - Parameter count calculation (8000×128 + 128×128×4 + ... = 2.45M)
+      - Memory footprint (params × 4 bytes for float32 = ~10MB)
+    diagrams:
+      - name: "TinyTransformer Architecture"
+        type: "ASCII block diagram"
+        shows: "Input → Embedding → TransformerBlock₁ → TransformerBlock₂ → Output Projection"
+    code_examples:
+      - name: "Model Instantiation"
+        runnable: true
+        language: python
+        demonstrates: "model = TinyTransformer(vocab_size=8000, d_model=128, nhead=4, num_layers=2)"
+    notes:
+      - At initialization, model outputs gibberish (random weights)
+      - Training adjusts weights to predict next token accurately
+  
+  4_data_preparation:
+    title: "Phase 3: Data Preparation - Batching and Splitting"
+    length_estimate: "200-250 lines"
+    content_requirements:
+      - Corpus structure (3 MB bilingual text, 46K sentences)
+      - Sequence creation (sliding window over tokenized text)
+      - Train/validation split (90/10 ratio, 10512 train, 1168 val)
+      - Batching strategy (batch_size=32, why batches matter)
+      - DataLoader usage (shuffling, efficient loading)
+      - Next-token prediction task (input: tokens[:-1], target: tokens[1:])
+    diagrams:
+      - name: "Corpus to Batches Flow"
+        type: "ASCII process diagram"
+        shows: "Corpus → Tokenize → Chunk (128 tokens) → Shuffle → Batch (32 sequences) → GPU/CPU"
+    code_examples:
+      - name: "Dataset Class"
+        runnable: true
+        language: python
+        demonstrates: "TextDataset with __getitem__ returning (input_ids, target_ids)"
+      - name: "Train/Val Split"
+        runnable: true
+        language: python
+        demonstrates: "torch.utils.data.random_split(dataset, [0.9, 0.1])"
+    tables:
+      - name: "Batch Size Trade-offs"
+        columns: [Batch Size, Training Speed, Memory Usage, Gradient Quality]
+        rows: [8, 16, 32, 64, 128]
+  
+  5_training_loop:
+    title: "Phase 4: The Training Loop - Forward and Backward"
+    length_estimate: "300-400 lines"
+    content_requirements:
+      - Epoch structure (full pass through training set)
+      - Forward pass (input → embeddings → attention → FFN → logits)
+      - Attention mechanism simplified (query, key, value matrices)
+      - Causal masking (prevent future token peeking)
+      - Loss calculation (cross-entropy between prediction and target)
+      - Backward pass (gradient computation via autograd)
+      - Why loss decreases (gradient descent adjusts weights)
+    diagrams:
+      - name: "Forward Pass Data Flow"
+        type: "ASCII flowchart"
+        shows: "Tokens → Embeddings → Attention → Add&Norm → FFN → Add&Norm → Logits"
+      - name: "Self-Attention Mechanism"
+        type: "ASCII matrix visualization"
+        shows: "Q·Kᵀ = Attention Scores (with causal mask)"
+      - name: "Backpropagation"
+        type: "ASCII diagram"
+        shows: "Loss → ∂Loss/∂Output → ∂Loss/∂Hidden → ∂Loss/∂Weights"
+    code_examples:
+      - name: "Training Step"
+        runnable: true
+        language: python
+        demonstrates: |
+          for epoch in range(num_epochs):
+              for batch in dataloader:
+                  logits = model(input_ids)
+                  loss = criterion(logits, targets)
+                  loss.backward()
+                  optimizer.step()
+      - name: "Loss Calculation"
+        runnable: true
+        language: python
+        demonstrates: "loss = F.cross_entropy(logits.view(-1, vocab_size), targets.view(-1))"
+    notes:
+      - Loss typically starts ~7-8 (random guessing entropy)
+      - Converges to ~4.8-5.0 for small model on limited corpus
+      - Each epoch takes ~20 seconds on CPU
+  
+  6_optimization:
+    title: "Phase 5: Optimization - AdamW and Learning Rates"
+    length_estimate: "200-250 lines"
+    content_requirements:
+      - Optimizer role (how to adjust weights based on gradients)
+      - AdamW specifics (adaptive learning rates, momentum, weight decay)
+      - Learning rate scheduling (cosine annealing from 0.0003 → 0)
+      - Gradient clipping (prevent exploding gradients, max_norm=1.0)
+      - Why these techniques matter (training stability, faster convergence)
+    diagrams:
+      - name: "Learning Rate Schedule"
+        type: "ASCII line graph"
+        shows: "LR over epochs (cosine decay curve)"
+    code_examples:
+      - name: "Optimizer Setup"
+        runnable: true
+        language: python
+        demonstrates: |
+          optimizer = torch.optim.AdamW(model.parameters(), lr=0.0003)
+          scheduler = CosineAnnealingLR(optimizer, T_max=num_epochs)
+      - name: "Gradient Clipping"
+        runnable: true
+        language: python
+        demonstrates: "torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)"
+    tables:
+      - name: "Optimizer Comparison"
+        columns: [Optimizer, Memory, Speed, Convergence Quality]
+        rows: [SGD, Adam, AdamW, RMSprop]
+  
+  7_evaluation:
+    title: "Phase 6: Evaluation & Checkpointing"
+    length_estimate: "200-250 lines"
+    content_requirements:
+      - Validation set purpose (detect overfitting)
+      - Checkpoint strategy (save every 5 epochs + best + final)
+      - What to save (model weights, optimizer state, epoch, loss history)
+      - Sample generation during training (quality assessment)
+      - Metrics to track (train_loss, val_loss, learning_rate, samples)
+      - When to stop (validation loss plateau, time limit)
+    diagrams:
+      - name: "Checkpointing Strategy"
+        type: "ASCII timeline"
+        shows: "Epoch 1 → 5 (save) → 10 (save) → 15 (save) → 20 (save + final)"
+    code_examples:
+      - name: "Checkpoint Save"
+        runnable: true
+        language: python
+        demonstrates: |
+          torch.save({
+              'epoch': epoch,
+              'model_state_dict': model.state_dict(),
+              'optimizer_state_dict': optimizer.state_dict(),
+              'train_loss': train_loss,
+              'val_loss': val_loss
+          }, 'checkpoint.pt')
+      - name: "Checkpoint Load"
+        runnable: true
+        language: python
+        demonstrates: |
+          checkpoint = torch.load('checkpoint.pt')
+          model.load_state_dict(checkpoint['model_state_dict'])
+          optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    notes:
+      - Best model = lowest validation loss (not training loss)
+      - Overfitting symptom: train_loss << val_loss (gap > 0.5)
+  
+  8_troubleshooting:
+    title: "Troubleshooting Common Issues"
+    length_estimate: "250-300 lines"
+    content_requirements:
+      - Problem-solution matrix for 10+ common issues
+      - Loss not decreasing → learning rate too high/low, bad data
+      - OOM errors → reduce batch_size or max_seq_length
+      - Training divergence (loss → NaN) → gradient explosion, numerical instability
+      - Poor generation quality → insufficient epochs, small model, limited corpus
+      - Overfitting → regularization, more data, early stopping
+      - Slow training → batch size too small, CPU bottleneck
+    tables:
+      - name: "Troubleshooting Matrix"
+        columns: [Symptom, Possible Causes, Solutions, Related Sections]
+        rows:
+          - "Loss stuck at ~7.0"
+          - "Loss → NaN/Inf"
+          - "OOM during training"
+          - "Generated text is gibberish"
+          - "Training too slow (>1 min/epoch)"
+          - "Validation loss much higher than train loss"
+          - "Model repeats same tokens"
+          - "Tokenizer fails to load corpus"
+          - "Checkpoints won't load"
+          - "Inference metrics exceed budgets"
+    notes:
+      - Most issues solvable by hyperparameter tuning
+      - Check training_metrics.json for loss history
+      - Visualize loss curves to diagnose problems
+  
+  9_hyperparameters:
+    title: "Hyperparameter Reference"
+    length_estimate: "200-250 lines"
+    content_requirements:
+      - Learning rate impact (too high → divergence, too low → slow)
+      - Batch size impact (larger → faster but more memory)
+      - Epochs impact (more → better quality but diminishing returns)
+      - Sequence length impact (longer → more context but slower)
+      - Model size impact (larger → better quality but exceeds 1GB budget)
+      - Recommended ranges for each hyperparameter
+    tables:
+      - name: "Hyperparameter Tuning Guide"
+        columns: [Parameter, Default, Range, Tuning Direction, Trade-offs]
+        rows:
+          - "learning_rate: 0.0003, [1e-5, 1e-2], Decrease if unstable, Convergence vs speed"
+          - "batch_size: 32, [8, 128], Increase for speed, Memory vs speed"
+          - "num_epochs: 20, [5, 100], Increase for quality, Time vs quality"
+          - "max_seq_length: 128, [32, 1024], Increase for context, Memory vs context"
+          - "vocab_size: 8000, [1000, 32000], Increase for coverage, Size vs quality"
+    code_examples:
+      - name: "Hyperparameter Sweep"
+        runnable: true
+        language: bash
+        demonstrates: |
+          for lr in 0.0001 0.0003 0.001; do
+              ./scripts/train_pipeline.sh --learning-rate $lr --epochs 10
+          done
+  
+  10_constitutional_compliance:
+    title: "1GB Device Compliance & Deployment"
+    length_estimate: "150-200 lines"
+    content_requirements:
+      - Distinction: Training (dev machine) vs Inference (1GB device)
+      - Constitutional budgets (RSS ≤ 400MB, peak ≤ 512MB, p95 ≤ 250ms)
+      - How training artifacts fit budgets (model ~10MB, tokenizer ~374KB)
+      - Inference testing (measure RSS, latency, throughput)
+      - Quantization for further size reduction (int8, future work)
+      - Deployment checklist (bundle model + tokenizer + safety filters)
+    code_examples:
+      - name: "Memory Profiling"
+        runnable: true
+        language: python
+        demonstrates: |
+          import psutil
+          process = psutil.Process()
+          rss_mb = process.memory_info().rss / (1024 * 1024)
+          print(f"RSS: {rss_mb:.0f} MB")
+      - name: "Inference Test"
+        runnable: true
+        language: bash
+        demonstrates: |
+          python -m src.cli.minimal_llm generate \
+              --prompt "Hello world" \
+              --max_tokens 50 \
+              --json
+    notes:
+      - Training can exceed 400MB (development activity)
+      - Inference MUST stay within budgets (runtime constraint)
+      - Validate post-training before deployment
+
+cross_references:
+  - from: "5_training_loop"
+    to: "2_tokenization"
+    reason: "Forward pass starts with token embeddings"
+  - from: "8_troubleshooting"
+    to: "9_hyperparameters"
+    reason: "Solutions often involve hyperparameter tuning"
+  - from: "7_evaluation"
+    to: "10_constitutional_compliance"
+    reason: "Checkpoint validation includes inference metrics"
+
+quality_criteria:
+  clarity:
+    - Understandable by developers with basic ML knowledge
+    - Avoids excessive jargon; defines terms on first use
+    - Uses analogies to explain complex concepts
+  
+  completeness:
+    - Covers all phases from corpus selection to deployment
+    - Addresses 80% of common training issues in troubleshooting
+    - Provides runnable code examples (copy-paste works)
+  
+  practicality:
+    - Includes real metrics from actual training runs
+    - Shows expected loss curves, generation samples
+    - References actual file paths and commands
+  
+  portability:
+    - Markdown renders in GitHub, VS Code, terminal
+    - ASCII diagrams work everywhere (no image dependencies)
+    - Code examples use standard libraries (no exotic deps)
+
+validation:
+  manual_review:
+    - New developer can follow guide and explain training process
+    - All code examples run without modification
+    - Diagrams accurately represent data flow
+  
+  automated_checks:
+    - Length: 1500-2500 lines (wc -l TRAINING_GUIDE.md)
+    - Sections: 10 level-2 headings (grep "^## " TRAINING_GUIDE.md | wc -l)
+    - Code blocks: ≥ 10 (grep -c "^```python" TRAINING_GUIDE.md)
+    - Tables: ≥ 3 (grep -c "^|.*|.*|" TRAINING_GUIDE.md)
+
+notes:
+  - Guide is educational, not API reference
+  - Complements existing DESIGN_LLM.md (broader scope) and INFERENCE_EXPLAINED.md (runtime focus)
+  - Targets training workflow specifically (corpus → model → checkpoints)
+  - Updated when training pipeline changes significantly

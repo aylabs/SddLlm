@@ -1,0 +1,317 @@
+name: train_pipeline.sh
+description: Orchestrates end-to-end model training from corpus download to final checkpoint validation
+type: shell_script
+language: bash
+
+usage: |
+  ./scripts/train_pipeline.sh [OPTIONS]
+  
+  Executes complete training workflow:
+  1. Prerequisite validation (disk space, Python packages)
+  2. Corpus download (if not --skip-corpus)
+  3. Tokenizer training (if not --skip-tokenizer)
+  4. Model training with checkpointing
+  5. Inference validation against constitutional budgets
+
+options:
+  --corpus-url:
+    type: string
+    default: "auto"
+    description: URL to download training corpus (uses Project Gutenberg bilingual by default)
+    example: "--corpus-url https://example.com/my_corpus.txt"
+  
+  --vocab-size:
+    type: integer
+    default: 8000
+    range: [1000, 32000]
+    description: Tokenizer vocabulary size
+    example: "--vocab-size 16000"
+  
+  --epochs:
+    type: integer
+    default: 20
+    range: [1, 100]
+    description: Number of training epochs
+    example: "--epochs 10"
+  
+  --batch-size:
+    type: integer
+    default: 32
+    range: [1, 128]
+    description: Training batch size (reduce if OOM)
+    example: "--batch-size 16"
+  
+  --learning-rate:
+    type: float
+    default: 0.0003
+    range: [0.00001, 0.01]
+    description: Initial learning rate for AdamW optimizer
+    example: "--learning-rate 0.0001"
+  
+  --max-seq-length:
+    type: integer
+    default: 128
+    range: [32, 2048]
+    description: Maximum sequence length for training
+    example: "--max-seq-length 256"
+  
+  --resume:
+    type: boolean
+    default: false
+    description: Resume from existing checkpoint without prompting
+    example: "--resume"
+  
+  --skip-corpus:
+    type: boolean
+    default: false
+    description: Skip corpus download if data/corpus_bilingual.txt exists
+    example: "--skip-corpus"
+  
+  --skip-tokenizer:
+    type: boolean
+    default: false
+    description: Skip tokenizer training if data/bilingual_8k.model exists
+    example: "--skip-tokenizer"
+  
+  --output-dir:
+    type: string
+    default: "./data"
+    description: Directory for training artifacts
+    example: "--output-dir /path/to/output"
+  
+  --help:
+    type: boolean
+    description: Display usage information
+    example: "--help"
+
+exit_codes:
+  0:
+    description: Success - all phases completed successfully
+    artifacts_created: true
+    validation_passed: true
+  
+  1:
+    description: Prerequisite check failed
+    possible_causes:
+      - Insufficient disk space (< 2GB free)
+      - Missing Python packages (torch, sentencepiece)
+      - Python version < 3.11
+      - Write permissions denied for output directory
+    suggested_actions:
+      - Run "df -h" to check disk space
+      - Run "pip install -r requirements.txt"
+      - Run "python --version" to verify version
+  
+  2:
+    description: Corpus download failed
+    possible_causes:
+      - Network connectivity issues
+      - Invalid corpus URL (404, 500 errors)
+      - Disk full during download
+    suggested_actions:
+      - Check internet connection
+      - Verify URL is accessible
+      - Free up disk space
+      - Use --corpus-url to specify alternative source
+  
+  3:
+    description: Tokenizer training failed
+    possible_causes:
+      - Corrupted corpus file (empty or binary data)
+      - SentencePiece library error
+      - Insufficient memory for vocabulary building
+    suggested_actions:
+      - Verify corpus file is UTF-8 text
+      - Reinstall sentencepiece: "pip install --upgrade sentencepiece"
+      - Reduce --vocab-size if OOM
+  
+  4:
+    description: Model training failed
+    possible_causes:
+      - Out of memory (batch_size too large)
+      - Training divergence (loss → NaN/Inf)
+      - Disk full (cannot save checkpoints)
+      - User interruption (Ctrl+C)
+    suggested_actions:
+      - Reduce --batch-size (try 16 or 8)
+      - Reduce --learning-rate (try 0.0001)
+      - Free up disk space
+      - Use --resume to continue from last checkpoint
+  
+  5:
+    description: Validation failed
+    possible_causes:
+      - Trained model generates gibberish (very high loss)
+      - Inference metrics exceed constitutional budgets
+      - Model file corrupted or incomplete
+    suggested_actions:
+      - Check training_metrics.json for final losses
+      - Increase --epochs for better convergence
+      - Verify best_model.pt file size > 0
+      - Retrain with different hyperparameters
+
+artifacts_produced:
+  required:
+    - path: "{output_dir}/corpus_bilingual.txt"
+      description: Training corpus (bilingual English + Spanish)
+      size_estimate: "3 MB"
+      skip_condition: "--skip-corpus provided and file exists"
+    
+    - path: "{output_dir}/bilingual_8k.model"
+      description: Trained SentencePiece tokenizer model
+      size_estimate: "374 KB"
+      skip_condition: "--skip-tokenizer provided and file exists"
+    
+    - path: "{output_dir}/bilingual_8k.vocab"
+      description: Vocabulary file (token IDs and frequencies)
+      size_estimate: "147 KB"
+      skip_condition: "--skip-tokenizer provided and file exists"
+    
+    - path: "{output_dir}/best_model.pt"
+      description: Model checkpoint with lowest validation loss
+      size_estimate: "10 MB"
+      contains: [epoch, model_state_dict, optimizer_state_dict, train_loss, val_loss, config]
+    
+    - path: "{output_dir}/final_model.pt"
+      description: Model checkpoint from final epoch (includes full training history)
+      size_estimate: "10 MB"
+      contains: [epoch, model_state_dict, optimizer_state_dict, config, training_history]
+    
+    - path: "{output_dir}/training_metrics.json"
+      description: Per-epoch statistics for analysis and plotting
+      size_estimate: "50 KB"
+      format: JSON
+      schema:
+        run_id: UUID
+        start_time: ISO8601 timestamp
+        config: PipelineConfiguration object
+        epoch_history: Array of EpochMetrics
+        final_metrics: Aggregated results
+  
+  optional:
+    - path: "{output_dir}/checkpoint_epoch_{N}.pt"
+      description: Periodic checkpoints (saved every 5 epochs by default)
+      size_estimate: "10 MB each"
+      quantity: "(num_epochs / 5) files"
+
+validation_criteria:
+  post_training:
+    - name: "Sample generation coherence"
+      test: "Generate text from trained model; verify no repeated tokens, grammatically plausible"
+      pass_condition: "Output contains varied tokens forming sentences"
+    
+    - name: "Validation loss threshold"
+      test: "Check final val_loss in training_metrics.json"
+      pass_condition: "val_loss < 5.0 after 20 epochs (default config)"
+    
+    - name: "Constitutional memory compliance"
+      test: "Run inference with trained model; measure RSS and peak memory"
+      pass_condition: "RSS ≤ 400 MB AND peak ≤ 512 MB"
+    
+    - name: "Constitutional latency compliance"
+      test: "Measure next-token generation time over 100 samples"
+      pass_condition: "p95 latency ≤ 250 ms"
+    
+    - name: "Bilingual capability"
+      test: "Generate from English and Spanish prompts"
+      pass_condition: "Both languages produce reasonable output"
+    
+    - name: "Artifact completeness"
+      test: "Verify all required artifact files exist and size > 0"
+      pass_condition: "All 6 required files present with expected sizes"
+
+execution_flow:
+  phases:
+    - name: "Prerequisite Check"
+      duration_estimate: "< 5 seconds"
+      checks:
+        - Disk space ≥ 2 GB free
+        - Python version ≥ 3.11
+        - Required packages installed (torch, sentencepiece, tqdm)
+        - Output directory writable
+      on_failure: Exit code 1
+    
+    - name: "Corpus Download"
+      duration_estimate: "10-30 seconds"
+      skippable: true (via --skip-corpus)
+      calls: "python scripts/download_simple_corpus.py"
+      output: "{output_dir}/corpus_bilingual.txt"
+      on_failure: Exit code 2
+    
+    - name: "Tokenizer Training"
+      duration_estimate: "5-10 seconds"
+      skippable: true (via --skip-tokenizer)
+      calls: "python scripts/train_tokenizer.py --vocab-size {vocab_size} --output {output_dir}"
+      output: ["{output_dir}/bilingual_8k.model", "{output_dir}/bilingual_8k.vocab"]
+      on_failure: Exit code 3
+    
+    - name: "Model Training"
+      duration_estimate: "6-8 minutes (20 epochs, CPU)"
+      resumable: true (via --resume)
+      calls: "python scripts/train_model.py --epochs {epochs} --batch-size {batch_size} --learning-rate {learning_rate} --max-seq-length {max_seq_length}"
+      progress_indicator: "tqdm progress bar per epoch"
+      checkpoints_saved: "Every 5 epochs + best + final"
+      on_failure: Exit code 4
+    
+    - name: "Validation"
+      duration_estimate: "10-20 seconds"
+      checks:
+        - Generate sample text from trained model
+        - Measure inference metrics (latency, memory)
+        - Compare against constitutional budgets
+        - Verify artifact integrity
+      on_failure: Exit code 5
+    
+    - name: "Completion"
+      reports:
+        - Total execution time
+        - List of artifacts created
+        - Validation results summary
+        - Next steps (how to use trained model)
+
+examples:
+  basic_usage:
+    command: "./scripts/train_pipeline.sh"
+    description: "Train with all defaults (20 epochs, 8K vocab, bilingual corpus)"
+    expected_duration: "~7 minutes"
+  
+  quick_test:
+    command: "./scripts/train_pipeline.sh --epochs 5 --batch-size 64"
+    description: "Fast training for testing (90 seconds)"
+    expected_duration: "~90 seconds"
+  
+  resume_interrupted:
+    command: "./scripts/train_pipeline.sh --resume"
+    description: "Continue from last checkpoint after interruption"
+    expected_duration: "Depends on remaining epochs"
+  
+  skip_existing:
+    command: "./scripts/train_pipeline.sh --skip-corpus --skip-tokenizer"
+    description: "Retrain model only (reuse corpus and tokenizer)"
+    expected_duration: "~6 minutes"
+  
+  custom_hyperparams:
+    command: "./scripts/train_pipeline.sh --learning-rate 0.0001 --epochs 30 --batch-size 16"
+    description: "Experiment with different hyperparameters"
+    expected_duration: "~12 minutes"
+
+dependencies:
+  runtime:
+    - python: ">= 3.11"
+    - torch: ">= 2.0"
+    - sentencepiece: ">= 0.2.0"
+    - tqdm: ">= 4.0"
+    - numpy: ">= 1.20"
+  
+  system:
+    - disk_space: ">= 2 GB free"
+    - memory: ">= 2 GB (for training; inference needs < 512 MB)"
+    - network: "Required for corpus download (unless --skip-corpus)"
+
+notes:
+  - Training is development-time activity; trained artifacts used at inference time
+  - Inference (not training) must meet 1GB device constitutional budgets
+  - Pipeline is sequential; phases execute in order with fail-fast semantics
+  - Progress bars show ETA for long-running phases (tokenizer, model training)
+  - Checkpoints enable resume after interruptions (Ctrl+C, OOM, system reboot)
+  - Validation ensures trained model usable before marking pipeline complete

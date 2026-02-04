@@ -25,3 +25,10 @@ Thumbs.db
 *.log
 *.tmp
 *.swp
+# Training artifacts (exclude large checkpoints, keep important models)
+data/checkpoint_epoch_*.pt
+data/*_epoch_*.pt
+# Keep these important files:
+# !data/best_model.pt
+# !data/final_model.pt
+# !data/training_metrics.json
