@@ -55,6 +55,9 @@ python -m src.cli.minimal_llm bundle-info --metadata bundle_metadata.json
 pytest tests/
 ```
 
+See [INFERENCE_EXPLAINED.md](INFERENCE_EXPLAINED.md) for comprehensive inference documentation.
+
+
 ## Architecture
 
 - **Model**: Tiny Transformer (2 layers, d_model=128, 4 heads)
